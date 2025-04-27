@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Chain Simulation</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #f0f0f0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        height: 100vh;
+      }
+      canvas {
+        background: white;
+        display: block;
+        margin-top: 10px;
+        border: 1px solid black;
+      }
+      #info {
+        font-size: 16px;
+        font-weight: bold;
+        color: blue;
+        user-select: none;
+      }
+      #resetButton {
+        margin-top: 10px;
+        padding: 8px 16px;
+        font-size: 16px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="resetButton">重新開始</button>
+    <div id="info">滑鼠拖曳藍色球看效果</div>
+
+    <canvas id="canvas" width="800" height="600"></canvas>
+
+    <script>
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+
+      const Ball_R = 10;
+      const gravity = 9.8;
+      const dt = 0.12;
+      const chainLength = 15;
+      let balls = [];
+
+      let isDragging = false;
+      let dragOffset = [0, 0];
+
+      // Ball 類
+      class Ball {
+        constructor(x, y, mass, color) {
+          this.pos = [x, y];
+          this.prevPos = [x, y];
+          this.vel = [0, 0];
+          this.mass = mass;
+          this.color = color;
+        }
+
+        applyGravity() {
+          if (this.mass > 0) {
+            // 第一顆球質量是0（固定）
+            this.vel[1] += gravity * dt;
+          }
+        }
+
+        updatePosition() {
+          if (this.mass > 0) {
+            let dS = [
+              this.vel[0] * dt,
+              this.vel[1] * dt + 0.5 * gravity * dt * dt,
+            ];
+            this.prevPos = [...this.pos];
+            this.pos[0] += dS[0];
+            this.pos[1] += dS[1];
+          }
+        }
+
+        updateVelocity() {
+          this.vel = [
+            (this.pos[0] - this.prevPos[0]) / dt,
+            (this.pos[1] - this.prevPos[1]) / dt,
+          ];
+        }
+
+        moveBy(offset) {
+          this.pos[0] += offset[0];
+          this.pos[1] += offset[1];
+        }
+
+        draw() {
+          ctx.beginPath();
+          ctx.arc(this.pos[0], this.pos[1], Ball_R, 0, Math.PI * 2);
+          ctx.fillStyle = this.color;
+          ctx.fill();
+          ctx.strokeStyle = "black";
+          ctx.stroke();
+        }
+      }
+
+      const CANVAS_WIDTH = 800;
+      const CANVAS_HEIGHT = 500;
+      const BallR = 20;
+      const Orbital_R = CANVAS_HEIGHT / 2;
+      const COR = 1; // Coefficient of Restitution
+      const nstep = 10;
+      const dst = dt / nstep;
+
+      //兩球碰撞類別
+      class CollisionBall {
+        constructor(x, y, radius, mass, color) {
+          this.x = x;
+          this.y = y;
+          this.vx = 0;
+          this.vy = 0;
+          this.radius = radius;
+          this.mass = mass;
+          this.color = color;
+        }
+
+        draw() {
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+          ctx.fillStyle = this.color;
+          ctx.fill();
+          ctx.closePath();
+        }
+
+        updatePosition() {
+          this.x += this.vx * dst;
+          this.y += this.vy * dst + 0.5 * gravity * dst ** 2;
+          this.vy += gravity * dst;
+        }
+      }
+
+      // 向量運算
+      function vector_Add(a, b) {
+        return [a[0] + b[0], a[1] + b[1]];
+      }
+
+      function vector_Gen(a, b) {
+        return [a[0] - b[0], a[1] - b[1]];
+      }
+
+      function vector_dot(a, b) {
+        return a[0] * b[0] + a[1] * b[1];
+      }
+
+      function vector_Length(a) {
+        return Math.sqrt(a[0] * a[0] + a[1] * a[1]);
+      }
+
+      // 判斷球和圓形邊界碰撞並修正
+      function correct_pos_vec(pos) {
+        const center = [CANVAS_WIDTH / 2, 600 - Orbital_R];
+        let a = vector_Gen(center, pos);
+        let dis = vector_Length(a) + BallR - Orbital_R;
+        if (dis < 0) return [0, 0]; // 沒撞到就不用修正
+        a = [(a[0] * dis) / vector_Length(a), (a[1] * dis) / vector_Length(a)];
+        return a;
+      }
+
+      // 球和球的距離
+      function disBtwBall(pos1, pos2) {
+        let a = vector_Gen(pos1, pos2);
+        return vector_Length(a);
+      }
+
+      // 球和球的重疊修正
+      function overlapcorr(pos1, pos2) {
+        let corr = BallR - disBtwBall(pos1, pos2) / 2;
+        let a = vector_Gen(pos1, pos2);
+        a = [
+          (a[0] * corr) / vector_Length(a),
+          (a[1] * corr) / vector_Length(a),
+        ];
+        return a;
+      }
+
+      // 初始化
+      let ball1 = new CollisionBall(
+        CANVAS_WIDTH / 2,
+        600 - BallR,
+        BallR,
+        50,
+        "lime"
+      );
+      let ball2 = new CollisionBall(
+        CANVAS_WIDTH / 2 - Orbital_R + BallR,
+        600 - Orbital_R,
+        BallR,
+        50,
+        "yellow"
+      );
+
+      // 建立串鏈球
+      function buildChain(n) {
+        const balls = [];
+        for (let i = 0; i < n; i++) {
+          let mass = i === 0 ? 0 : 5; // 第一顆球是固定的
+          let color = i === 0 ? "blue" : "fuchsia";
+          balls.push(
+            new Ball(canvas.width / 2 + 2 * i * Ball_R, Ball_R, mass, color)
+          );
+        }
+        return balls;
+      }
+
+      // 計算向量長度
+      function vectorLength(v) {
+        return Math.sqrt(v[0] * v[0] + v[1] * v[1]);
+      }
+
+      // 主循環
+      function update() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // 畫圓形軌道
+        ctx.beginPath();
+        ctx.arc(CANVAS_WIDTH / 2, 600 - Orbital_R, Orbital_R, 0, Math.PI * 2);
+        ctx.lineWidth = 5;
+        ctx.strokeStyle = "red";
+        ctx.stroke();
+        ctx.closePath();
+
+        // 多步微積分模擬
+        for (let i = 0; i < nstep; i++) {
+          let prepos1 = [ball1.x, ball1.y];
+          let prepos2 = [ball2.x, ball2.y];
+
+          // ball1
+          ball1.updatePosition();
+          let delta = correct_pos_vec([ball1.x, ball1.y]);
+          ball1.x += delta[0];
+          ball1.y += delta[1];
+          ball1.vx = (ball1.x - prepos1[0]) / dst;
+          ball1.vy = (ball1.y - prepos1[1]) / dst;
+
+          // ball2
+          ball2.updatePosition();
+          let delta2 = correct_pos_vec([ball2.x, ball2.y]);
+          ball2.x += delta2[0];
+          ball2.y += delta2[1];
+          ball2.vx = (ball2.x - prepos2[0]) / dst;
+          ball2.vy = (ball2.y - prepos2[1]) / dst;
+
+          // ball vs ball
+          if (disBtwBall([ball1.x, ball1.y], [ball2.x, ball2.y]) < 2 * BallR) {
+            const m = ball1.mass;
+            const m1 = ball2.mass;
+            const corrvec = overlapcorr([ball1.x, ball1.y], [ball2.x, ball2.y]);
+            ball1.x += corrvec[0];
+            ball1.y += corrvec[1];
+            ball2.x -= corrvec[0];
+            ball2.y -= corrvec[1];
+
+            const centripetal_v =
+              vector_dot([ball1.vx, ball1.vy], corrvec) /
+              vector_Length(corrvec);
+            const centripetal_v1 =
+              vector_dot([ball2.vx, ball2.vy], corrvec) /
+              vector_Length(corrvec);
+            const newV =
+              (m * centripetal_v +
+                m1 * centripetal_v1 -
+                m1 * (centripetal_v - centripetal_v1) * COR) /
+              (m + m1);
+            const newV1 =
+              (m * centripetal_v +
+                m1 * centripetal_v1 -
+                m * (centripetal_v1 - centripetal_v) * COR) /
+              (m + m1);
+
+            const Dv1 = [
+              ((newV - centripetal_v) * corrvec[0]) / vector_Length(corrvec),
+              ((newV - centripetal_v) * corrvec[1]) / vector_Length(corrvec),
+            ];
+            const Dv2 = [
+              ((newV1 - centripetal_v1) * corrvec[0]) / vector_Length(corrvec),
+              ((newV1 - centripetal_v1) * corrvec[1]) / vector_Length(corrvec),
+            ];
+            ball1.vx += Dv1[0];
+            ball1.vy += Dv1[1];
+            ball2.vx += Dv2[0];
+            ball2.vy += Dv2[1];
+          }
+        }
+
+        ball1.draw();
+        ball2.draw();
+
+        // 鍊條球物理模擬
+        for (let i = 1; i < balls.length; i++) {
+          balls[i].applyGravity();
+          balls[i].updatePosition();
+        }
+
+        // 維持連結約束
+        for (let i = 0; i < balls.length - 1; i++) {
+          let a = balls[i];
+          let b = balls[i + 1];
+          let delta = [b.pos[0] - a.pos[0], b.pos[1] - a.pos[1]];
+          let dist = vectorLength(delta);
+          let diff = (2 * Ball_R - dist) / dist;
+          let w1 = a.mass === 0 ? 0 : 1 / a.mass;
+          let w2 = b.mass === 0 ? 0 : 1 / b.mass;
+          let correction = [
+            (delta[0] * diff) / (w1 + w2),
+            (delta[1] * diff) / (w1 + w2),
+          ];
+
+          if (a.mass !== 0) {
+            a.moveBy([-w1 * correction[0], -w1 * correction[1]]);
+          }
+          if (b.mass !== 0) {
+            b.moveBy([w2 * correction[0], w2 * correction[1]]);
+          }
+        }
+
+        // 更新速度
+        for (let i = 1; i < balls.length; i++) {
+          balls[i].updateVelocity();
+        }
+
+        // 畫鍊子球
+        for (let ball of balls) {
+          ball.draw();
+        }
+
+        requestAnimationFrame(update);
+      }
+
+      // 滑鼠事件
+      canvas.addEventListener("mousedown", (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const firstBall = balls[0];
+        const dx = mouseX - firstBall.pos[0];
+        const dy = mouseY - firstBall.pos[1];
+        if (Math.sqrt(dx * dx + dy * dy) < Ball_R * 2) {
+          isDragging = true;
+          dragOffset = [dx, dy];
+        }
+      });
+
+      canvas.addEventListener("mousemove", (e) => {
+        if (isDragging) {
+          const rect = canvas.getBoundingClientRect();
+          const mouseX = e.clientX - rect.left;
+          const mouseY = e.clientY - rect.top;
+          balls[0].pos[0] = mouseX - dragOffset[0];
+          balls[0].pos[1] = mouseY - dragOffset[1];
+        }
+      });
+
+      canvas.addEventListener("mouseup", () => {
+        isDragging = false;
+      });
+
+      canvas.addEventListener("mouseleave", () => {
+        isDragging = false;
+      });
+
+      // 初始化
+      balls = buildChain(chainLength);
+      update();
+
+      document.getElementById("resetButton").addEventListener("click", () => {
+        location.reload();
+      });
+    </script>
+
+    <script></script>
+  </body>
+</html>
