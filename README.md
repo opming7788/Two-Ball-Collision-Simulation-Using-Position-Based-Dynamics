@@ -6,7 +6,7 @@
 
 This project is a web-based (HTML + JavaScript) physics simulator that uses **Position-Based Dynamics (PBD)** to model the motion of a chain and simulate collisions between two balls.  
 The system simulates the movement of a chain under the influence of gravity and handles collision responses between two small balls.  
-By applying position-driven methods to calculate both chain dynamics and collision reactions, it achieves a more realistic and stable simulation effect.
+By applying Position-Based Dynamics methods to calculate both chain dynamics and collision reactions, it achieves a more realistic and stable simulation effect.
 
 ---
 
